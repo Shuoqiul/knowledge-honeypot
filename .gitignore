@@ -1,0 +1,19 @@
+# runtime artifacts (README says these are intentionally not uploaded)
+checkpoint/
+TeacherAns/
+EQCache/
+EntityQA/
+logs/
+results/
+runs/
+_teacher.json
+*-teacher.json
+__pycache__/
+*.pyc
+*.sbatch.out
+*.out
+*.err
+.vscode
+.idea
+.env
+*.key

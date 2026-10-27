@@ -135,9 +135,19 @@ def _safe_cache_name(name: str) -> str:
     return re.sub(r"[^A-Za-z0-9_.-]+", "_", name)
 
 
+# E0 patch: include the run name in the victim-answer cache path. The original
+# key was (domain, prompt) only; across E0 cells the same prompt would then
+# reuse another cell's answer (e.g. an HKG-substituted answer leaking into the
+# baseline run). Override the directory with TEACHER_CACHE_DIR env if needed.
+def _teacher_cache_path(domain: str, cache_namespace: str | None) -> str:
+    base = os.getenv("TEACHER_CACHE_DIR", TEACHER_CACHE_DIR)
+    run_tag = _safe_cache_name(cache_namespace or "")
+    name = f"{_safe_cache_name(domain)}__{run_tag}" if run_tag else _safe_cache_name(domain)
+    return os.path.join(base, f"{name}_teacher.json")
+
+
 def load_teacher_answer(domain: str, prompt: str, cache_namespace: str | None = None) -> str | None:
-    cache_name = _safe_cache_name(cache_namespace or domain)
-    path = os.path.join(TEACHER_CACHE_DIR, f"{cache_name}_teacher.json")
+    path = _teacher_cache_path(domain, cache_namespace)
     if not os.path.exists(path):
         return None
     with open(path, "r", encoding="utf-8") as f:
@@ -145,8 +155,7 @@ def load_teacher_answer(domain: str, prompt: str, cache_namespace: str | None = 
     return store.get(prompt)
 
 def save_teacher_answer(domain: str, prompt: str, answer: str, cache_namespace: str | None = None):
-    cache_name = _safe_cache_name(cache_namespace or domain)
-    path = os.path.join(TEACHER_CACHE_DIR, f"{cache_name}_teacher.json")
+    path = _teacher_cache_path(domain, cache_namespace)
     if os.path.exists(path):
         with open(path, "r", encoding="utf-8") as f:
             store = json.load(f)
@@ -256,6 +265,23 @@ def cache_answer(ans: str, q: str, ent: str):
     v = EMBED_MODEL.encode(ans, normalize_embeddings=True)
     EMBED_CACHE.append(v)
     META_CACHE.append({"answer": ans, "question": q, "entity": ent})
+
+
+def _safe_is_bad_answer(stu_ans, tea_ans, sim_threshold):
+    try:
+        return is_bad_answer(stu_ans, tea_ans, sim_threshold)
+    except Exception as exc:  # e.g. embedder weights unavailable offline
+        print(f"[Warn] is_bad_answer unavailable ({type(exc).__name__}); logging None")
+        return None
+
+
+def _frontier_source_counts(exploration) -> Dict[str, int]:
+    """Count of queued frontier items by their acquisition source (E0 logging)."""
+    counts: Dict[str, int] = {}
+    for item in exploration._queue:
+        src = item.get("source", "unknown")
+        counts[src] = counts.get(src, 0) + 1
+    return counts
 
 
 def select_next(exploration, student, mix_prob=0.25, domain="medical") -> dict | None:
@@ -499,6 +525,14 @@ def main(
     experiment_name: str | None = None,
     skip_final_train: bool = False,
     with_correction: bool = True,
+    # ---- E0 flags (all default to original behaviour) ----
+    mask_source: bool = False,
+    detector_mode: str = "legacy",
+    junk_control: bool = False,
+    lure_only: bool = False,
+    lure_always: bool = False,
+    oracle_threshold: float | None = None,
+    clear_teacher_cache: bool = True,
 ):
     print("Running main function...")
 
@@ -530,6 +564,12 @@ def main(
             if not os.path.isfile(ckpt_path):
                 raise FileNotFoundError(f"Specified checkpoint file not found: {ckpt_path}")
     run_name = experiment_name or f"{domain}_{defense_mode}_B{MAX_QUERIES}"
+    # A stale per-run victim cache would silently change what the attacker sees.
+    if clear_teacher_cache:
+        stale = _teacher_cache_path(domain, run_name)
+        if os.path.exists(stale):
+            os.remove(stale)
+            print(f"[Cache] cleared stale victim-answer cache: {stale}")
     os.makedirs("results", exist_ok=True)
     os.makedirs("logs", exist_ok=True)
     os.makedirs("checkpoint", exist_ok=True)
@@ -546,12 +586,23 @@ def main(
             hkg_sample_strategy=hkg_sample_strategy,
             hkg_seed=hkg_seed,
             log_path=f"results/{run_name}_honeypot_budget.jsonl",
+            mask_source=mask_source,
+            detector_mode=detector_mode,
+            junk_control=junk_control,
+            lure_only=lure_only,
+            lure_always=lure_always,
+            oracle_threshold=oracle_threshold,
         )
     dock = PriorityDock()
-    detector = BroadAnswerDetector(
-        model_name="all-MiniLM-L6-v2", 
-        sim_thresh=broad_answer_thresh
-    )
+    # E0 patch: only build the broad-answer detector when follow-up generation is
+    # enabled; otherwise it needlessly requires all-MiniLM weights (offline risk)
+    # and E0 runs set --with_coq=false.
+    detector = None
+    if with_coq:
+        detector = BroadAnswerDetector(
+            model_name="all-MiniLM-L6-v2",
+            sim_thresh=broad_answer_thresh
+        )
     base = AutoModelForCausalLM.from_pretrained(
         STUDENT_BASE, 
         device_map="auto" if torch.cuda.is_available() else {"": "cpu"},
@@ -738,7 +789,10 @@ def main(
             "student_answer": stu_ans,
             "teacher_answer": tea_ans,
             "ppl": ppl_val if not math.isnan(ppl_val) else None,
-            "is_bad_answer": is_bad_answer(stu_ans, tea_ans, sim_threshold),
+            # is_bad_answer needs the mpnet embedder; with --with_correction=false
+            # it is a harmless log field. If mpnet is not cached offline, don't
+            # abort the whole E0 cell over a diagnostic.
+            "is_bad_answer": _safe_is_bad_answer(stu_ans, tea_ans, sim_threshold),
             "defense_route": defense_meta.get("route"),
             "suspicion": defense_meta.get("suspicion"),
             "hkg_node": defense_meta.get("hkg_node"),
@@ -746,7 +800,10 @@ def main(
             "entities_added": added_cnt if source in CONCEPT_SOURCES or source == "followup" else 0,
             "followup_generated": gen if source in CONCEPT_SOURCES else 0,
             "followup_executed": execd if source in CONCEPT_SOURCES else 0,
-            "time_cost_sec": round(time.time() - tic, 2)
+            # E0 control: frontier composition at this step, for the urn law.
+            "frontier_size": len(exploration._queue),
+            "frontier_by_source": _frontier_source_counts(exploration),
+            "time_cost_sec": round(time.time() - tic, 2),
         })
         ppl_cache[prompt] = ppl_val if not math.isnan(ppl_val) else None
         print(f"Done in {time.time() - tic:.1f}s | PPL={ppl_val if not math.isnan(ppl_val) else '—'}")

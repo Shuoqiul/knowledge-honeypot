@@ -2,7 +2,19 @@ import re
 import Levenshtein as Lv
 from sentence_transformers import SentenceTransformer, util
 
-EMBED_MODEL = SentenceTransformer("all-mpnet-base-v2", device="cpu")
+# E0 patch: build the embedder lazily. The original loaded all-mpnet-base-v2 at
+# import time, which aborts an offline E0 run (HF_HUB_OFFLINE=1) if the weights
+# are not cached, even when --with_correction=false never uses it.
+EMBED_MODEL = None
+
+
+def _get_embed_model():
+    global EMBED_MODEL
+    if EMBED_MODEL is None:
+        EMBED_MODEL = SentenceTransformer("all-mpnet-base-v2", device="cpu")
+    return EMBED_MODEL
+
+
 _num_pat = re.compile(r"[-+]?\d+\.?\d*")
 
 def _extract_nums(text):
@@ -31,8 +43,9 @@ def is_bad_answer(student: str, teacher: str, sim_th: float = 0.6, length_th: in
     if len(student.strip()) < length_th:
         return True
 
-    emb_s = EMBED_MODEL.encode(student, convert_to_tensor=True)
-    emb_t = EMBED_MODEL.encode(teacher, convert_to_tensor=True)
+    model = _get_embed_model()
+    emb_s = model.encode(student, convert_to_tensor=True)
+    emb_t = model.encode(teacher, convert_to_tensor=True)
     sim = util.cos_sim(emb_s, emb_t).item()
 
     if abs(sim - sim_th) < fuzzy_threshold:

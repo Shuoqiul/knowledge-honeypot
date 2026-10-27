@@ -1,1 +1,1 @@
-from .teacherGPT4API import query_teacher, extract_entities
+from .teacherGPT4API import query_teacher, extract_entities, get_victim_backend

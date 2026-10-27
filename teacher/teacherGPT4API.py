@@ -20,21 +20,45 @@ DOMAIN_CONFIGS: Dict[str, Dict[str, Any]] = {
     },
 
 }
-api_key = os.getenv("OPENROUTER_API_KEY") or os.getenv("OPENAI_API_KEY")
-base_url = os.getenv("OPENROUTER_BASE_URL")
-if os.getenv("OPENROUTER_API_KEY") and not base_url:
-    base_url = "https://openrouter.ai/api/v1"
+# ---------------------------------------------------------------------------
+# E0 patch (repro/oct-2026): local victim backend.
+# The original behaviour (OpenRouter / OpenAI env vars) is preserved as the
+# default. Setting VICTIM_BACKEND=local_vllm points the same OpenAI-compatible
+# client at a local vLLM server (or any OpenAI-compatible server) and does not
+# require any API key nor any outbound network access.
+# ---------------------------------------------------------------------------
+VICTIM_BACKEND = os.getenv("VICTIM_BACKEND", "openrouter").lower()
+VICTIM_BASE_URL = os.getenv("VICTIM_BASE_URL", "http://127.0.0.1:8000/v1")
+# Placeholder key: vLLM ignores it, the OpenAI client just needs a non-empty string.
+LOCAL_VLLM_API_KEY = "EMPTY"
 
-if not api_key:
-    raise ValueError(
-        "API key is missing. Set OPENROUTER_API_KEY for OpenRouter "
-        "or OPENAI_API_KEY for OpenAI-compatible use."
-    )
 
-client_kwargs = {"api_key": api_key}
-if base_url:
-    client_kwargs["base_url"] = base_url
-client = OpenAI(**client_kwargs)
+def _build_client() -> OpenAI:
+    if VICTIM_BACKEND in {"local_vllm", "local", "vllm"}:
+        return OpenAI(api_key=LOCAL_VLLM_API_KEY, base_url=VICTIM_BASE_URL)
+
+    api_key = os.getenv("OPENROUTER_API_KEY") or os.getenv("OPENAI_API_KEY")
+    base_url = os.getenv("OPENROUTER_BASE_URL")
+    if os.getenv("OPENROUTER_API_KEY") and not base_url:
+        base_url = "https://openrouter.ai/api/v1"
+
+    if not api_key:
+        raise ValueError(
+            "API key is missing. Set OPENROUTER_API_KEY for OpenRouter "
+            "or OPENAI_API_KEY for OpenAI-compatible use."
+        )
+
+    client_kwargs = {"api_key": api_key}
+    if base_url:
+        client_kwargs["base_url"] = base_url
+    return OpenAI(**client_kwargs)
+
+
+client = _build_client()
+
+
+def get_victim_backend() -> str:
+    return VICTIM_BACKEND
 
 def gpt_teacher(
     prompt: str,
