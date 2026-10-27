@@ -37,7 +37,7 @@ fi
 # Don't print the token; just confirm it is present.
 echo "HF_TOKEN is set (len=${#HF_TOKEN}); gated access must be granted to this account."
 
-huggingface-cli download meta-llama/Llama-3.1-8B-Instruct \
+hf download meta-llama/Llama-3.1-8B-Instruct \
     --repo-type model \
     --cache-dir "${HF_HUB_CACHE}"
 
