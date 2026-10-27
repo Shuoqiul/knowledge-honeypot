@@ -30,8 +30,9 @@
 set -o pipefail
 set -x
 
-source ~/anaconda3/etc/profile.d/conda.sh
-conda activate /orange/sgao1/ZhengaoLi/Envs/torch2.7.0
+source /orange/sgao1/sli/conda_cache/anaconda3/etc/profile.d/conda.sh
+export CONDA_ENVS_PATH=/orange/sgao1/sli/.conda/envs
+conda activate /orange/sgao1/sli/.conda/envs/kh-torch28
 
 export HF_HOME=/orange/sgao1/sli/hf_cache
 export HF_HUB_CACHE="${HF_HOME}/hub"

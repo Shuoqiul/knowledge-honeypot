@@ -1,65 +1,46 @@
 # E0 Slurm scripts (branch `repro/oct-2026`)
 
-Everything here is written for the PI to submit. The actor (me) is offline and
-cannot see the cluster. Submit in this order; hand back the `.out`/`.err` logs.
+Only GPU runs use Slurm. Environment setup, the weight download, and E0.7 are
+plain `.sh` in `env/` — see `env/README.md`.
 
-**Before submitting anything**, the PI must fill in two placeholders in the
-`*.sbatch` files (they are `REPO` and `SNAP`):
+**Prerequisites (done first, interactively, no GPU):**
+`env/01_create_env.sh` → `env/02_install_vllm.sh` → `env/03_download_llama31_8b.sh`
+→ `env/04_check_env.sh` (capability must be `(10, 0)`).
 
-| Variable | Value | Where it comes from |
-| --- | --- | --- |
-| `REPO` | absolute path to this checkout on `repro/oct-2026` | PI knows |
-| `SNAP` | `${HF_HUB_CACHE}/models--meta-llama--Llama-3.1-8B-Instruct/snapshots/<HASH>` | printed by `01_download` |
+From `03_download` copy the printed **snapshot hash**, then in both GPU sbatch
+files set:
 
-Also **verify** these against the reference `srun_group.sh` (not in this repo),
-per Actor Supplement §2. If any differ, stop and tell me:
+| Variable | Value |
+| --- | --- |
+| `REPO` | absolute path to this checkout on `repro/oct-2026` |
+| `SNAP` | `${HF_HUB_CACHE}/models--meta-llama--Llama-3.1-8B-Instruct/snapshots/<HASH>` |
 
-- partition `hpg-b200`
-- conda env `/orange/sgao1/ZhengaoLi/Envs/torch2.7.0`
-- `HF_HOME=/orange/sgao1/sli/hf_cache`, hub cache `${HF_HOME}/hub`
+Both files activate `/orange/sgao1/sli/.conda/envs/kh-torch28`.
 
-## Batch 1 (what I need first)
+## GPU jobs
 
-1. `sbatch slurm/00_blackwell_check.sbatch`
-   - Acceptance: `capability (10, 0)` and `torch`/`vllm` import. If not (10,0),
-     that's a blocker; send me the log.
-2. `export HF_TOKEN=...` in the submitting shell (its HF account must have
-   accepted Meta's Llama-3.1 license), then
-   `sbatch slurm/01_download_llama31_8b.sbatch`
-   - Acceptance: `DOWNLOAD_OK` and a snapshot dir listed. Send me the snapshot
-     hash so I can fill `SNAP`.
-3. `sbatch slurm/02_e0_smoke_tiny.sbatch` after setting `REPO` and `SNAP`
+1. `sbatch slurm/02_e0_smoke_tiny.sbatch`
+   - Validates the E0 patches + local victim wiring with the README tiny attacker,
+     B=20, `baseline` and `full`, real LLaMA-3.1-8B local victim. Cheap.
    - Acceptance: `SMOKE_DONE`, and a listing of `runs/e0_smoke/<jobid>/` and
-     `results/smoke_*`. This validates the patches. Do NOT run the gate array
-     until this passes.
-4. `sbatch slurm/04_e0_7_benign_cpu.sbatch` (CPU, independent; can go in parallel)
+     `results/smoke_*`. **Do not** start the gate array until this passes.
 
-## Batch 2 (the gate matrix, after 3 passes)
+2. `sbatch slurm/03_e0_gate_array.sbatch` (the Nov-8 gate matrix)
+   - Default `--array=0-3%1` runs only E0.1: baseline B200, full B200,
+     full+mask B200, full+mask B500. Judge E0.1 first.
+   - If clean, change the array line to `0-8%1` to add full+tagged B500 (4),
+     E0.2 junk B200/B500 (5,6), E0.3 oracle B200/B500 (7,8).
+   - `%1` keeps one task at a time (one B200); each task starts/kills its own vLLM.
 
-`sbatch slurm/03_e0_gate_array.sbatch`
+## Cell → flag map
 
-The default `--array=0-3%1` runs only E0.1 (baseline B200, full B200, full+mask
-B200, full+mask B500) because E0.1 is gate-critical and should be judged first.
-After those come back clean, edit the array line to `0-8%1` to add:
-
-- 4 full+tagged B500 (pairs with 3)
-- 5,6 E0.2 junk B200/B500
-- 7,8 E0.3 oracle B200/B500
-
-(Actor note: on a single B200 runs are serialized; `%1` keeps one task at a time.
-`%2` is possible but risks two vLLM servers each requesting 0.35 of the 180 GB,
-which is fine memory-wise but doubles wall time per cell; keep `%1` unless the PI
-confirms quota and wants throughput.)
-
-## What each cell changes vs. the shipped code
-
-| Cell | Flag(s) | Meaning |
+| Cell | Flags | Meaning |
 | --- | --- | --- |
-| baseline | `--defense_mode=baseline --mask_source=true` | no defense; mask is irrelevant here |
-| full (tagged) | `--defense_mode=full` | as shipped (attackers still pass their `source`) |
+| baseline | `--defense_mode=baseline --mask_source=true` | no defense |
+| full (tagged) | `--defense_mode=full` | as shipped |
 | full (mask) | `+ --mask_source=true` | E0.1: detector sees `source=None` |
-| junk | `+ --junk_control=true --mask_source=true` | E0.2: substitute generic non-HKG text |
+| junk | `+ --junk_control=true --mask_source=true` | E0.2: generic non-HKG substitute |
 | oracle | `+ --detector_mode=oracle --mask_source=true` | E0.3: trigger from step 0 |
 
-All runs use `--skip_final_train=true --with_coq=false --with_followup=false
---with_correction=false`, matching the shipped ICL route.
+All cells: `--skip_final_train=true --with_coq=false --with_followup=false
+--with_correction=false` (shipped ICL route).

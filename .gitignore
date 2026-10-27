@@ -17,3 +17,5 @@ __pycache__/
 .idea
 .env
 *.key
+.hf_token
+hf_token*
