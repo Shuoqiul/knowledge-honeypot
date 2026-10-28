@@ -42,4 +42,4 @@ SNAP_DIR="${HF_HUB_CACHE}/models--meta-llama--Llama-3.1-8B-Instruct/snapshots"
 echo "--- victim snapshot ---"
 ls -d "${SNAP_DIR}/"* 2>/dev/null || echo "NO SNAPSHOT FOUND (run 03_download first)"
 
-nvidia-smi || true
+command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi || echo "(no nvidia-smi here; run under srun --gres=gpu:1 to check the GPU)"

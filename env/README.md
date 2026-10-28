@@ -1,68 +1,62 @@
 # Environment setup (interactive `.sh`, no sbatch, no GPU)
 
-These are plain shell scripts you run in your own interactive session. They do
-**not** use Slurm and do **not** need a GPU (except the optional capability check,
-which you run under `srun` if you want to confirm sm_100).
+Plain shell scripts for your own interactive session. None need Slurm or a GPU
+(except the optional capability check, which you run under `srun` if you want sm_100).
 
-All scripts expect the cluster paths you gave:
+Cluster paths:
 
 - conda base: `/orange/sgao1/sli/conda_cache/anaconda3`
 - envs:       `/orange/sgao1/sli/.conda/envs`
 - pkgs:       `/orange/sgao1/sli/.conda/pkgs`
-- new env:    `kh-torch28` (Python 3.10, torch 2.8)
+- new env:    `kh-torch28` (Python 3.10, torch 2.8.0+cu128)
 
-## Order
+## Order (run all 5)
 
 ```bash
-# 1) create env + install requirements (torch 2.8)
-bash env/01_create_env.sh
-
-# 2) (optional) install vLLM to serve the local victim
-bash env/02_install_vllm.sh
-
-# 3) download the gated weights ONCE (needs HF_TOKEN, see below)
-bash env/03_download_llama31_8b.sh
-
-# 4) sanity check (versions + snapshot present; add srun for capability)
-bash env/04_check_env.sh
-#   or, to also print capability (10,0):
-#   srun --partition=hpg-b200 --gres=gpu:1 bash env/04_check_env.sh
-
-# 5) E0.7 benign false-trigger (CPU, any time)
-bash env/05_e0_7_benign.sh
+bash env/01_create_env.sh      # remove any dirty env, recreate, install deps
+bash env/02_install_vllm.sh    # confirm/install vLLM (01 already tries)
+bash env/03_download_llama31_8b.sh   # skips if snapshot already present
+bash env/04_check_env.sh       # verify versions + imports + snapshot
+bash env/05_e0_7_benign.sh     # E0.7 (CPU), any time
 ```
 
-## torch version and the pin
+`04` is still the verification step — and it is now strict: `01` also ends with a
+hard verify that fails loudly if torch/transformers/tokenizers/peft/numpy do not
+match the pinned versions. If `04` reports `VERIFY_FAILED` (in `01`) or a mismatch,
+send me the output and stop; do not proceed.
 
-`requirements.txt` pins `torch==2.8.0.dev20250626+cu128` (a **nightly**) and
-`pytorch-triton==3.3.1+git...`. A plain `pip install -r` can't resolve those.
-`01_create_env.sh` first tries the exact pins with the PyTorch nightly index; if
-that fails it falls back to **stable torch 2.8.0+cu128** (Blackwell/sm_100
-capable) and keeps every other package at its pinned version. The fallback is a
-recorded deviation; the log says `EXACT_PINS_FAILED` if it happened — send it to me.
+## How the deps are installed (why not `pip install -r`)
 
-## HF_TOKEN (do not hardcode in the script)
+`requirements.txt` pins a PyTorch **nightly** (`2.8.0.dev20250626+cu128`) that
+PyTorch has deleted, plus cu128 `nvidia-*` wheels and `pytorch-triton` that clash
+with the torch wheel on python 3.10. A plain `-r` install aborts half-way (that is
+how an earlier attempt ended on torch 2.13 / transformers 5.17).
 
-Choose one:
+`01` instead:
+1. removes any existing `kh-torch28` (guarantees clean), creates python 3.10;
+2. installs a single **stable `torch==2.8.0` + `torchvision==0.23.0` +
+   `torchaudio==2.8.0` from the cu128 index** (Blackwell/sm_100);
+3. installs every **other** pin from `requirements.txt`, with `torch*`, `triton`,
+   `pytorch-triton`, and all `nvidia-*` lines filtered out (torch brings its own);
+4. installs `vllm>=0.10.0,<0.11.0`;
+5. hard-verifies: `transformers==4.53.1`, `tokenizers==0.21.2`, `peft==0.16.0`,
+   `sentence-transformers==4.1.0`, `numpy==2.2.6`, `torch==2.8.0`.
 
-- **A. Session export** (simplest):
-  ```bash
-  export HF_TOKEN=hf_xxxxxxxxxxxxxxxx
-  bash env/03_download_llama31_8b.sh
-  ```
-- **B. Token file** (persists across sessions, still not in git):
-  ```bash
-  printf '%s\n' 'hf_xxxxxxxxxxxxxxxx' > ~/.hf_token
-  chmod 600 ~/.hf_token
-  bash env/03_download_llama31_8b.sh   # script reads ~/.hf_token if HF_TOKEN unset
-  ```
+**Recorded deviation:** nightly→stable `torch 2.8.0+cu128`. Functionally equivalent
+for our use and Blackwell-capable.
 
-Either way the token is never echoed. `~/.hf_token` is covered by `.gitignore`'s
-`.env`/`*.key` patterns; if you name it differently, add it to `.gitignore`.
-The HF account must have accepted Meta's Llama-3.1 license, or the download 403s.
+## HF_TOKEN (do not hardcode)
 
-## After 03 succeeds
+- A: `export HF_TOKEN=hf_xxx` then run `03`; or
+- B: `printf '%s\n' 'hf_xxx' > ~/.hf_token && chmod 600 ~/.hf_token`; `03` reads it.
 
-Copy the printed snapshot hash and put it in `SNAP` in the two GPU sbatch files
-(`slurm/02_e0_smoke_tiny.sbatch`, `slurm/03_e0_gate_array.sbatch`), and set `REPO`.
-Those two are the only things that still go through `sbatch`.
+Never echoed. The HF account must have accepted Meta's Llama-3.1 license.
+The download uses `hf download` (the current CLI; `huggingface-cli` is deprecated).
+
+## You already have the weights
+
+A snapshot exists at
+`.../models--meta-llama--Llama-3.1-8B-Instruct/snapshots/0e9e39f249a16976918f6564b8830bc894c89659`,
+so `03` will print `SNAPSHOT_ALREADY_PRESENT` and skip. Use that hash for `SNAP` in
+the two GPU sbatch files (`slurm/02_e0_smoke_tiny.sbatch`, `slurm/03_e0_gate_array.sbatch`),
+and set `REPO`. Those two are the only things that go through `sbatch`.
