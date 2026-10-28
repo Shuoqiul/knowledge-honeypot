@@ -30,6 +30,8 @@ python - <<'PY'
 import importlib.metadata as md, sys
 from packaging.version import Version
 ok = True
+def base(v):  # drop local segment, e.g. "2.8.0+cu128" -> "2.8.0"
+    return Version(v).base_version
 def check(name, want, test):
     global ok
     try: got = md.version(name)
@@ -37,12 +39,12 @@ def check(name, want, test):
     good = got is not None and test(got)
     print(f"{name:22s} want {want:12s} got {got}  {'ok' if good else 'MISMATCH'}")
     ok = ok and good
-check("torch", "2.8.0", lambda v: v=="2.8.0")
-check("transformers", "4.55.2", lambda v: v=="4.55.2")
-check("tokenizers", "0.21.x", lambda v: Version("0.21")<=Version(v)<Version("0.22"))
-check("peft", "0.16.0", lambda v: v=="0.16.0")
-check("sentence-transformers", "4.1.0", lambda v: v=="4.1.0")
-check("numpy", "2.2.6", lambda v: v=="2.2.6")
+check("torch", "2.8.0", lambda v: base(v)=="2.8.0")
+check("transformers", "4.55.2", lambda v: base(v)=="4.55.2")
+check("tokenizers", "0.21.x", lambda v: Version("0.21")<=Version(base(v))<Version("0.22"))
+check("peft", "0.16.0", lambda v: base(v)=="0.16.0")
+check("sentence-transformers", "4.1.0", lambda v: base(v)=="4.1.0")
+check("numpy", "2.2.6", lambda v: base(v)=="2.2.6")
 try:
     import transformers, torch, vllm
     print("imports ok:", transformers.__version__, torch.__version__, vllm.__version__)

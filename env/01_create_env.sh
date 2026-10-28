@@ -86,7 +86,8 @@ python -m pip install "transformers==4.55.2"
 python - <<'PY'
 import importlib.metadata as md, sys
 from packaging.version import Version
-# Strict pins (must match exactly):
+# Strict pins. Compare BASE version (ignore local segment like +cu128), so
+# torch "2.8.0+cu128" matches "2.8.0".
 want = {"torch":"2.8.0","peft":"0.16.0","sentence-transformers":"4.1.0",
         "numpy":"2.2.6","transformers":"4.55.2"}
 # tokenizers: whatever transformers==4.55.2 requires (>=0.21,<0.22).
@@ -97,12 +98,12 @@ for name, ver in want.items():
         got = md.version(name)
     except Exception:
         got = None
-    ok = (got == ver) if got else False
+    ok = got is not None and Version(got).base_version == ver
     print(f"{name:22s} want {ver:10s} got {got}  {'ok' if ok else 'MISMATCH'}")
     if not ok: bad.append(name)
 try:
     tok = md.version("tokenizers")
-    ok_tok = Version("0.21") <= Version(tok) < Version("0.22")
+    ok_tok = Version("0.21") <= Version(tok).base_version < Version("0.22")
     print(f"{'tokenizers':22s} want 0.21.x     got {tok}  {'ok' if ok_tok else 'MISMATCH'}")
     if not ok_tok: bad.append("tokenizers")
 except Exception:
