@@ -20,6 +20,19 @@ bash env/04_check_env.sh       # verify versions + imports + snapshot
 bash env/05_e0_7_benign.sh     # E0.7 (CPU), any time
 ```
 
+Every `01`/`01b` run now also writes a full log to `env/logs/*.log` (git-ignored),
+so a failed install is never lost again.
+
+### If torch is 2.8 and vllm works but transformers drifted
+
+vLLM 0.10.2 requires `transformers>=4.55.2`; the requirements pin 4.53.1. We settle
+on **transformers 4.55.2** (closest to 4.53.1, supported by vLLM). If `01` left
+transformers at 4.57.x, fix in place without rebuilding:
+
+```bash
+bash env/01b_fix_transformers.sh
+```
+
 `04` is still the verification step — and it is now strict: `01` also ends with a
 hard verify that fails loudly if torch/transformers/tokenizers/peft/numpy do not
 match the pinned versions. If `04` reports `VERIFY_FAILED` (in `01`) or a mismatch,
@@ -39,11 +52,13 @@ how an earlier attempt ended on torch 2.13 / transformers 5.17).
 3. installs every **other** pin from `requirements.txt`, with `torch*`, `triton`,
    `pytorch-triton`, and all `nvidia-*` lines filtered out (torch brings its own);
 4. installs `vllm>=0.10.0,<0.11.0`;
-5. hard-verifies: `transformers==4.53.1`, `tokenizers==0.21.2`, `peft==0.16.0`,
-   `sentence-transformers==4.1.0`, `numpy==2.2.6`, `torch==2.8.0`.
+5. hard-verifies: `torch==2.8.0`, `transformers==4.55.2`, `tokenizers==0.21.x`,
+   `peft==0.16.0`, `sentence-transformers==4.1.0`, `numpy==2.2.6`.
 
-**Recorded deviation:** nightly→stable `torch 2.8.0+cu128`. Functionally equivalent
-for our use and Blackwell-capable.
+**Recorded deviations:** (a) nightly→stable `torch 2.8.0+cu128` (Blackwell-capable);
+(b) `transformers 4.53.1`→`4.55.2` (vLLM 0.10.2 requires >=4.55.2). The repo only
+uses standard `AutoModelForCausalLM`/`generate`/`Trainer`/`TrainingArguments`/
+`DataCollatorForSeq2Seq`, unchanged across 4.53→4.55.
 
 ## HF_TOKEN (do not hardcode)
 

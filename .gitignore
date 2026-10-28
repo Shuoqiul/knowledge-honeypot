@@ -19,3 +19,4 @@ __pycache__/
 *.key
 .hf_token
 hf_token*
+env/logs/

@@ -20,6 +20,14 @@
 # (3) hard-verify the pinned versions. This is a recorded deviation
 # (nightly->stable 2.8.0); torch 2.8.0 supports Blackwell/sm_100.
 set -uo pipefail
+
+# Persist a full log next to the repo so it cannot be lost in scrollback.
+LOG_DIR="$(cd "$(dirname "$0")" && pwd)/logs"
+mkdir -p "${LOG_DIR}"
+LOG_FILE="${LOG_DIR}/01_create_env_$(date +%Y%m%d_%H%M%S).log"
+# send everything (stdout+stderr, including set -x) to the log and the terminal
+exec > >(tee -a "${LOG_FILE}") 2>&1
+echo "logging to ${LOG_FILE}"
 set -x
 
 CONDA_BASE=/orange/sgao1/sli/conda_cache/anaconda3
@@ -54,26 +62,34 @@ python -m pip install torch==2.8.0 torchvision==0.23.0 torchaudio==2.8.0 \
 
 # 2) derive a filtered requirements: drop torch/vision/audio/triton and every
 #    nvidia-* wheel (torch brings the ones it needs).
-#    Also drop ace_tools (OpenAI-internal stub, not on public PyPI, unused here).
+#    Also drop ace_tools (OpenAI-internal stub, not on public PyPI, unused here)
+#    and transformers/tokenizers: vLLM requires transformers>=4.55.2, which is
+#    incompatible with the pinned 4.53.1. We install transformers explicitly
+#    after vLLM (step 3) at a version vLLM supports. Recorded deviation.
 FILTERED=/tmp/kh_req_filtered.txt
-grep -viE '^(torch|torchvision|torchaudio|pytorch-triton|triton|nvidia-[a-z0-9-]+|ace_tools)==' \
+grep -viE '^(torch|torchvision|torchaudio|pytorch-triton|triton|nvidia-[a-z0-9-]+|ace_tools|transformers|tokenizers|huggingface-hub)==' \
     "${REPO}/requirements.txt" > "${FILTERED}"
-echo "=== filtered requirements (torch/nvidia/triton/ace_tools removed) ==="
+echo "=== filtered requirements (torch/nvidia/triton/ace_tools/transformers/tokenizers/huggingface-hub removed) ==="
 cat "${FILTERED}"
 
 python -m pip install -r "${FILTERED}"
 
-# 3) vLLM is not in requirements.txt; install a version compatible with torch 2.8.
-#    If this resolves to a different torch it will be reported by the verify step.
+# 3) vLLM, then an explicit transformers/tokenizers that vLLM accepts.
+#    vllm 0.10.2 requires transformers>=4.55.2; 4.55.2 is the closest to the
+#    pinned 4.53.1. Install transformers AFTER vllm so pip keeps this pin.
 python -m pip install "vllm>=0.10.0,<0.11.0" || {
     echo "VLLM_INSTALL_FAILED (fallback: in-process transformers, Supplement 4B)"
 }
+python -m pip install "transformers==4.55.2"
 
 # 4) hard verification: fail loudly if anything drifted.
 python - <<'PY'
 import importlib.metadata as md, sys
-want = {"torch":"2.8.0","transformers":"4.53.1","tokenizers":"0.21.2",
-        "peft":"0.16.0","sentence-transformers":"4.1.0","numpy":"2.2.6"}
+from packaging.version import Version
+# Strict pins (must match exactly):
+want = {"torch":"2.8.0","peft":"0.16.0","sentence-transformers":"4.1.0",
+        "numpy":"2.2.6","transformers":"4.55.2"}
+# tokenizers: whatever transformers==4.55.2 requires (>=0.21,<0.22).
 bad = []
 print("python", sys.version.split()[0])
 for name, ver in want.items():
@@ -84,12 +100,20 @@ for name, ver in want.items():
     ok = (got == ver) if got else False
     print(f"{name:22s} want {ver:10s} got {got}  {'ok' if ok else 'MISMATCH'}")
     if not ok: bad.append(name)
+try:
+    tok = md.version("tokenizers")
+    ok_tok = Version("0.21") <= Version(tok) < Version("0.22")
+    print(f"{'tokenizers':22s} want 0.21.x     got {tok}  {'ok' if ok_tok else 'MISMATCH'}")
+    if not ok_tok: bad.append("tokenizers")
+except Exception:
+    bad.append("tokenizers")
 import torch
 print("torch.cuda.is_available", torch.cuda.is_available())
 try:
-    import vllm; print("vllm", vllm.__version__)
+    import transformers, vllm
+    print("transformers", transformers.__version__, "vllm", vllm.__version__)
 except Exception as e:
-    print("vllm", "MISSING", type(e).__name__)
+    print("IMPORT_FAILED", type(e).__name__, e); bad.append("import")
 if bad:
     print("VERIFY_FAILED:", ",".join(bad)); sys.exit(1)
 print("VERIFY_OK")
