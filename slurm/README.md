@@ -7,15 +7,29 @@ plain `.sh` in `env/` — see `env/README.md`.
 `env/01_create_env.sh` → `env/02_install_vllm.sh` → `env/03_download_llama31_8b.sh`
 → `env/04_check_env.sh` (capability must be `(10, 0)`).
 
-From `03_download` copy the printed **snapshot hash**, then in both GPU sbatch
-files set:
+In both GPU sbatch files you MUST set **one** variable:
 
 | Variable | Value |
 | --- | --- |
-| `REPO` | absolute path to this checkout on `repro/oct-2026` |
-| `SNAP` | `${HF_HUB_CACHE}/models--meta-llama--Llama-3.1-8B-Instruct/snapshots/<HASH>` |
+| `REPO` | absolute path to this checkout on `repro/oct-2026` (e.g. `/orange/sgao1/sli/knowledge-honeypot`) |
 
-Both files activate `/orange/sgao1/sli/.conda/envs/kh-torch28`.
+`SNAP` is now **auto-resolved** from the HF cache (single snapshot dir
+`.../snapshots/0e9e39f...`), so you do not need to paste the hash. Both files
+hard-fail immediately if `REPO` is still `/path/to/...` or the snapshot is missing,
+instead of burning a job slot. Both activate `/orange/sgao1/sli/.conda/envs/kh-torch28`.
+
+## First, confirm the GPU side (isolates vLLM from the smoke run)
+
+`cuda_available False` in `env/04` is expected: you ran it on a login node, which
+has no GPU. To check the GPU, run the probe inside an allocation:
+
+```bash
+srun --partition=hpg-b200 --gres=gpu:1 --cpus-per-task=4 --mem=32G --time=00:15:00 \
+     bash env/06_gpu_probe.sh
+```
+
+Expect `capability (10, 0)`, `matmul bf16 ok`, then `VLLM_HEALTH_OK` and a JSON
+reply. If vLLM fails to start, its log is `env/logs/vllm_probe.log`.
 
 ## GPU jobs
 

@@ -41,9 +41,21 @@ export HF_HUB_OFFLINE=1
 export PYTHONUNBUFFERED=1
 export TOKENIZERS_PARALLELISM=false
 
-# ---- fill these in from 00/01 outputs (VERIFY with PI) ----
+# ---- set REPO to this checkout (branch repro/oct-2026). SNAP auto-resolves. ----
 REPO="${REPO:-/path/to/knowledge-honeypot}"
-SNAP="${SNAP:-${HF_HUB_CACHE}/models--meta-llama--Llama-3.1-8B-Instruct/snapshots/<HASH>}"
+SNAP_DIR_ROOT="${HF_HUB_CACHE}/models--meta-llama--Llama-3.1-8B-Instruct/snapshots"
+if [ -z "${SNAP:-}" ]; then
+    SNAP="$(ls -d "${SNAP_DIR_ROOT}/"*/ 2>/dev/null | head -n1)"
+fi
+SNAP="${SNAP%/}"
+if [ ! -d "$REPO" ]; then
+    echo "FATAL: REPO='${REPO}' is not a directory. Edit slurm/03_e0_gate_array.sbatch and set REPO."; exit 2
+fi
+if [ -z "$SNAP" ] || [ ! -d "$SNAP" ]; then
+    echo "FATAL: victim SNAP not found under ${SNAP_DIR_ROOT}. Run env/03_download first or set SNAP."; exit 2
+fi
+echo "REPO=${REPO}"; echo "SNAP=${SNAP}"
+
 export VICTIM_BACKEND=local_vllm
 export VICTIM_BASE_URL=http://127.0.0.1:8000/v1
 VICTIM_NAME=llama-3.1-8b-instruct
@@ -64,7 +76,7 @@ case "${idx}" in
   *) echo "Unknown array index ${idx}"; exit 2 ;;
 esac
 
-cd "$REPO"
+cd "$REPO" || { echo "FATAL: cannot cd to $REPO"; exit 2; }
 run_root="${REPO}/runs/e0/${SLURM_ARRAY_JOB_ID}_${idx}"
 mkdir -p "$run_root"
 echo "config: name=${NAME} mode=${MODE} B=${B} extra=[${EXTRA}]"
@@ -82,9 +94,12 @@ trap 'kill ${VLLM_PID} 2>/dev/null || true' EXIT
 
 for i in $(seq 1 180); do
     if curl -fsS http://127.0.0.1:8000/health >/dev/null 2>&1; then break; fi
+    if ! kill -0 "${VLLM_PID}" 2>/dev/null; then
+        echo "vLLM PROCESS EXITED before healthy"; tail -n 120 "${run_root}/vllm.log"; exit 1
+    fi
     sleep 2
 done
-curl -fsS http://127.0.0.1:8000/health || { echo "vLLM FAILED TO START"; tail -n 80 "${run_root}/vllm.log"; exit 1; }
+curl -fsS http://127.0.0.1:8000/health || { echo "vLLM FAILED TO START"; tail -n 120 "${run_root}/vllm.log"; exit 1; }
 
 # --- provenance ---
 { nvidia-smi; python -c "import torch; print('cap', torch.cuda.get_device_capability(0))"; } > "${run_root}/gpu.txt" 2>&1 || true

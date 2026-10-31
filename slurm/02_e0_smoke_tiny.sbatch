@@ -32,14 +32,29 @@ export HF_HUB_OFFLINE=1
 export PYTHONUNBUFFERED=1
 export TOKENIZERS_PARALLELISM=false
 
-# ---- fill these in from 00/01 outputs (VERIFY with PI) ----
-REPO="${REPO:-/path/to/knowledge-honeypot}"          # checkout of branch repro/oct-2026
-SNAP="${SNAP:-${HF_HUB_CACHE}/models--meta-llama--Llama-3.1-8B-Instruct/snapshots/<HASH>}"
+# ---- set REPO to this checkout (branch repro/oct-2026). SNAP auto-resolves. ----
+REPO="${REPO:-/path/to/knowledge-honeypot}"
+SNAP_DIR_ROOT="${HF_HUB_CACHE}/models--meta-llama--Llama-3.1-8B-Instruct/snapshots"
+# auto-pick the single snapshot dir if SNAP not given
+if [ -z "${SNAP:-}" ]; then
+    SNAP="$(ls -d "${SNAP_DIR_ROOT}/"*/ 2>/dev/null | head -n1)"
+fi
+SNAP="${SNAP%/}"
+
+# Hard-fail on unresolved placeholders instead of burning a job slot.
+if [ ! -d "$REPO" ]; then
+    echo "FATAL: REPO='${REPO}' is not a directory. Edit slurm/02_e0_smoke_tiny.sbatch and set REPO."; exit 2
+fi
+if [ -z "$SNAP" ] || [ ! -d "$SNAP" ]; then
+    echo "FATAL: victim SNAP not found under ${SNAP_DIR_ROOT}. Run env/03_download first or set SNAP."; exit 2
+fi
+echo "REPO=${REPO}"; echo "SNAP=${SNAP}"
+
 export VICTIM_BACKEND=local_vllm
 export VICTIM_BASE_URL=http://127.0.0.1:8000/v1
 VICTIM_NAME=llama-3.1-8b-instruct
 
-cd "$REPO"
+cd "$REPO" || { echo "FATAL: cannot cd to $REPO"; exit 2; }
 run_root="${REPO}/runs/e0_smoke/${SLURM_JOB_ID}"
 mkdir -p "$run_root"
 
@@ -60,9 +75,13 @@ for i in $(seq 1 180); do
         echo "vLLM is up after ${i} tries"
         break
     fi
+    # if the server process already died, stop waiting and show its log
+    if ! kill -0 "${VLLM_PID}" 2>/dev/null; then
+        echo "vLLM PROCESS EXITED before healthy"; tail -n 120 "${run_root}/vllm.log"; exit 1
+    fi
     sleep 2
 done
-curl -fsS http://127.0.0.1:8000/health || { echo "vLLM FAILED TO START"; tail -n 80 "${run_root}/vllm.log"; exit 1; }
+curl -fsS http://127.0.0.1:8000/health || { echo "vLLM FAILED TO START"; tail -n 120 "${run_root}/vllm.log"; exit 1; }
 
 # --- provenance ---
 { nvidia-smi; python -c "import torch; print('cap', torch.cuda.get_device_capability(0))"; } > "${run_root}/gpu.txt" 2>&1 || true
