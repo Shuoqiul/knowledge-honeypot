@@ -61,29 +61,37 @@ run_root="${REPO}/runs/e0_smoke/${SLURM_JOB_ID}"
 mkdir -p "$run_root"
 
 # --- start the local victim (vLLM) ---
-python -m vllm.entrypoints.openai.api_server \
+# NOTE: --enforce-eager avoids CUDA-graph capture (faster/more robust first boot).
+# max-model-len 4096 is plenty for our prompts and lowers KV-cache pressure.
+export VLLM_LOGGING_LEVEL=INFO
+python -u -m vllm.entrypoints.openai.api_server \
     --model "${SNAP}" \
     --served-model-name "${VICTIM_NAME}" \
     --port 8000 \
     --gpu-memory-utilization 0.35 \
-    --max-model-len 8192 \
-    > "${run_root}/vllm.log" 2>&1 &
+    --max-model-len 4096 \
+    --enforce-eager \
+    > >(tee "${run_root}/vllm.log") 2>&1 &
 VLLM_PID=$!
 trap 'kill ${VLLM_PID} 2>/dev/null || true' EXIT
 
 echo "waiting for vLLM /health ..."
+up=0
 for i in $(seq 1 180); do
     if curl -fsS http://127.0.0.1:8000/health >/dev/null 2>&1; then
-        echo "vLLM is up after ${i} tries"
-        break
+        echo "vLLM is up after ${i} tries"; up=1; break
     fi
     # if the server process already died, stop waiting and show its log
     if ! kill -0 "${VLLM_PID}" 2>/dev/null; then
-        echo "vLLM PROCESS EXITED before healthy"; tail -n 120 "${run_root}/vllm.log"; exit 1
+        echo "vLLM PROCESS EXITED before healthy"; break
     fi
     sleep 2
 done
-curl -fsS http://127.0.0.1:8000/health || { echo "vLLM FAILED TO START"; tail -n 120 "${run_root}/vllm.log"; exit 1; }
+if [ "$up" -ne 1 ]; then
+    echo "vLLM FAILED TO START -- full vllm.log follows"
+    cat "${run_root}/vllm.log"
+    exit 1
+fi
 
 # --- provenance ---
 { nvidia-smi; python -c "import torch; print('cap', torch.cuda.get_device_capability(0))"; } > "${run_root}/gpu.txt" 2>&1 || true

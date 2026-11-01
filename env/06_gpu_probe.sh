@@ -84,15 +84,22 @@ echo "--- build vllm.LLM and generate one prompt (real traceback below if it fai
 VLLM_SMOKE="${LOG_DIR}/_vllm_engine_smoke.py"
 cat > "${VLLM_SMOKE}" <<'PY'
 import sys, traceback
-snap = sys.argv[1]
-try:
+
+def main():
+    snap = sys.argv[1]
     from vllm import LLM, SamplingParams
     llm = LLM(model=snap, gpu_memory_utilization=0.60, max_model_len=2048,
               enforce_eager=True, dtype="bfloat16")
     out = llm.generate(["Reply with OK"], SamplingParams(max_tokens=8, temperature=0.0))
     print("VLLM_ENGINE_OK:", out[0].outputs[0].text.strip())
-except Exception:
-    print("VLLM_ENGINE_FAILED"); traceback.print_exc(); sys.exit(3)
+
+# vLLM uses spawn: worker processes re-import this module, so the LLM(...) call
+# MUST be behind __main__ or the child re-runs it and fails bootstrapping.
+if __name__ == "__main__":
+    try:
+        main()
+    except Exception:
+        print("VLLM_ENGINE_FAILED"); traceback.print_exc(); sys.exit(3)
 PY
 python "${VLLM_SMOKE}" "${SNAP}"
 rc=$?
