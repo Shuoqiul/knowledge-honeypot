@@ -78,9 +78,13 @@ if [ -z "${SNAP}" ] || [ ! -d "${SNAP}" ]; then
 fi
 
 echo "--- build vllm.LLM and generate one prompt (real traceback below if it fails) ---"
-python - <<PY
+# vLLM spawns worker subprocesses that re-import __main__. Running this from a
+# heredoc makes __main__ == "<stdin>" and the worker fails with
+# FileNotFoundError: <stdin>. So we write a real script file and run that.
+VLLM_SMOKE="${LOG_DIR}/_vllm_engine_smoke.py"
+cat > "${VLLM_SMOKE}" <<'PY'
 import sys, traceback
-snap = "${SNAP}"
+snap = sys.argv[1]
 try:
     from vllm import LLM, SamplingParams
     llm = LLM(model=snap, gpu_memory_utilization=0.60, max_model_len=2048,
@@ -90,6 +94,7 @@ try:
 except Exception:
     print("VLLM_ENGINE_FAILED"); traceback.print_exc(); sys.exit(3)
 PY
+python "${VLLM_SMOKE}" "${SNAP}"
 rc=$?
 if [ "$rc" -ne 0 ]; then
     echo "ENGINE_SMOKE_FAILED rc=$rc -- server test skipped"; exit "$rc"

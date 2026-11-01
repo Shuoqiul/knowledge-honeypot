@@ -32,7 +32,9 @@ export HF_HUB_OFFLINE=1
 export PYTHONUNBUFFERED=1
 export TOKENIZERS_PARALLELISM=false
 
-# ---- set REPO to this checkout (branch repro/oct-2026). SNAP auto-resolves. ----
+# ============================================================================
+# >>> SET REPO BELOW (the only placeholder). Everything else auto-resolves. <<<
+# ============================================================================
 REPO="${REPO:-/path/to/knowledge-honeypot}"
 SNAP_DIR_ROOT="${HF_HUB_CACHE}/models--meta-llama--Llama-3.1-8B-Instruct/snapshots"
 # auto-pick the single snapshot dir if SNAP not given
