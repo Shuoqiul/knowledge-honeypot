@@ -20,6 +20,7 @@ __pycache__/
 .hf_token
 hf_token*
 env/logs/
+env/log/
 slurm/err_log/
 slurm/*.out
 slurm/*.err
