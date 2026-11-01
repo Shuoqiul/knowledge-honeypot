@@ -61,17 +61,18 @@ run_root="${REPO}/runs/e0_smoke/${SLURM_JOB_ID}"
 mkdir -p "$run_root"
 
 # --- start the local victim (vLLM) ---
-# NOTE: --enforce-eager avoids CUDA-graph capture (faster/more robust first boot).
-# max-model-len 4096 is plenty for our prompts and lowers KV-cache pressure.
+# Mirrors the known-good env/06 probe: plain redirection (NOT process
+# substitution `>(tee)`) because vLLM's spawn children inherit the fd and that
+# pipe hangs/loses output under sbatch. enforce-eager avoids CUDA-graph capture.
 export VLLM_LOGGING_LEVEL=INFO
 python -u -m vllm.entrypoints.openai.api_server \
     --model "${SNAP}" \
     --served-model-name "${VICTIM_NAME}" \
     --port 8000 \
-    --gpu-memory-utilization 0.35 \
+    --gpu-memory-utilization 0.50 \
     --max-model-len 4096 \
     --enforce-eager \
-    > >(tee "${run_root}/vllm.log") 2>&1 &
+    > "${run_root}/vllm.log" 2>&1 &
 VLLM_PID=$!
 trap 'kill ${VLLM_PID} 2>/dev/null || true' EXIT
 
