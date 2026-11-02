@@ -84,23 +84,26 @@ mkdir -p "$run_root"
 echo "config: name=${NAME} mode=${MODE} B=${B} extra=[${EXTRA}]"
 
 # --- start the local victim (vLLM) ---
-# Mirrors env/06 probe (known good): plain redirection, enforce-eager, 4096 len.
-# 0.50 util leaves ~89 GiB for the 8B attacker student on the same B200.
+# EXACT CLI of the known-good env/06 probe section 3 (no -u, no --enforce-eager,
+# util 0.60, len 2048). Leaves ~71 GiB free on the B200 for the 8B attacker.
 export VLLM_LOGGING_LEVEL=INFO
-python -u -m vllm.entrypoints.openai.api_server \
+python -m vllm.entrypoints.openai.api_server \
     --model "${SNAP}" \
     --served-model-name "${VICTIM_NAME}" \
     --port 8000 \
-    --gpu-memory-utilization 0.50 \
-    --max-model-len 4096 \
-    --enforce-eager \
+    --gpu-memory-utilization 0.60 \
+    --max-model-len 2048 \
     > "${run_root}/vllm.log" 2>&1 &
 VLLM_PID=$!
 trap 'kill ${VLLM_PID} 2>/dev/null || true' EXIT
 
 up=0
-for i in $(seq 1 180); do
+for i in $(seq 1 300); do
     if curl -fsS http://127.0.0.1:8000/health >/dev/null 2>&1; then up=1; break; fi
+    if [ $((i % 30)) -eq 0 ]; then
+        echo "[wait $((i*2))s] vllm alive=$(kill -0 ${VLLM_PID} 2>/dev/null && echo yes || echo no)"
+        nvidia-smi --query-gpu=memory.used,utilization.gpu --format=csv,noheader || true
+    fi
     if ! kill -0 "${VLLM_PID}" 2>/dev/null; then
         echo "vLLM PROCESS EXITED before healthy"; break
     fi

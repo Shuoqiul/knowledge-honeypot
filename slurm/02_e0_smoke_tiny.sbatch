@@ -61,26 +61,31 @@ run_root="${REPO}/runs/e0_smoke/${SLURM_JOB_ID}"
 mkdir -p "$run_root"
 
 # --- start the local victim (vLLM) ---
-# Mirrors the known-good env/06 probe: plain redirection (NOT process
-# substitution `>(tee)`) because vLLM's spawn children inherit the fd and that
-# pipe hangs/loses output under sbatch. enforce-eager avoids CUDA-graph capture.
+# EXACT CLI of the known-good env/06 probe section 3 (no -u, no --enforce-eager,
+# util 0.60, len 2048). That combination was verified to reach /health on this
+# B200; deviations from it hung at arg_utils. Plain redirection, not >(tee).
 export VLLM_LOGGING_LEVEL=INFO
-python -u -m vllm.entrypoints.openai.api_server \
+python -m vllm.entrypoints.openai.api_server \
     --model "${SNAP}" \
     --served-model-name "${VICTIM_NAME}" \
     --port 8000 \
-    --gpu-memory-utilization 0.50 \
-    --max-model-len 4096 \
-    --enforce-eager \
+    --gpu-memory-utilization 0.60 \
+    --max-model-len 2048 \
     > "${run_root}/vllm.log" 2>&1 &
 VLLM_PID=$!
 trap 'kill ${VLLM_PID} 2>/dev/null || true' EXIT
 
 echo "waiting for vLLM /health ..."
 up=0
-for i in $(seq 1 180); do
+for i in $(seq 1 300); do
     if curl -fsS http://127.0.0.1:8000/health >/dev/null 2>&1; then
         echo "vLLM is up after ${i} tries"; up=1; break
+    fi
+    # every 30 tries (~60s), print a heartbeat with the engine subprocess state
+    if [ $((i % 30)) -eq 0 ]; then
+        echo "[wait $((i*2))s] vllm pid ${VLLM_PID} alive=$(kill -0 ${VLLM_PID} 2>/dev/null && echo yes || echo no)"
+        ps -o pid,ppid,etimes,rss,cmd --ppid "${VLLM_PID}" 2>/dev/null | head -5 || true
+        nvidia-smi --query-gpu=memory.used,utilization.gpu --format=csv,noheader || true
     fi
     # if the server process already died, stop waiting and show its log
     if ! kill -0 "${VLLM_PID}" 2>/dev/null; then
