@@ -18,7 +18,13 @@ bash env/02_install_vllm.sh    # confirm/install vLLM (01 already tries)
 bash env/03_download_llama31_8b.sh   # skips if snapshot already present
 bash env/04_check_env.sh       # verify versions + imports + snapshot
 bash env/05_e0_7_benign.sh     # E0.7 (CPU), any time
+bash env/07_download_models.sh # pre-download tiny-gpt2 + SBERT (+ verify 8B student)
 ```
+
+`07` is required before the sbatch jobs: the attacker loop loads
+`all-MiniLM-L6-v2` (CPU) and `sshleifer/tiny-gpt2` (smoke), and the E0 jobs load
+`meta-llama/Llama-3.1-8B-Instruct` as the student — all must be in the cache or
+`HF_HUB_OFFLINE=1` jobs fail. `07` is the only script that needs network.
 
 Every `01`/`01b` run now also writes a full log to `env/logs/*.log` (git-ignored),
 so a failed install is never lost again.

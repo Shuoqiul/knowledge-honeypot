@@ -38,7 +38,7 @@ QUESTION_PREFIX_RE = re.compile(r'^(what|how|why|when|where|which|who)\b', re.I)
 TAG_PATTERN = re.compile(r"^\[[^\]]+\]\s*")  
 # E0 patch: lazy-load all-MiniLM-L6-v2. Loading at import broke offline runs when
 # the weights were not in the HF cache (LocalEntryNotFoundError at line 39). Now
-# it is built on first use, with a clear error pointing at env/07_download_sbert.sh.
+# it is built on first use, with a clear error pointing at env/07_download_models.sh.
 EMBED_MODEL = None
 
 
@@ -50,7 +50,7 @@ def get_embed_model():
         except Exception as exc:
             raise RuntimeError(
                 "Failed to load all-MiniLM-L6-v2 (CPU embedder used by the attacker "
-                "loop). Pre-download it once with: bash env/07_download_sbert.sh  "
+                "loop). Pre-download it once with: bash env/07_download_models.sh  "
                 f"Original error: {type(exc).__name__}: {exc}"
             ) from exc
     return EMBED_MODEL

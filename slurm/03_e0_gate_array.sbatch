@@ -125,7 +125,7 @@ echo "seed=0" > "${run_root}/manifest.txt"
 
 # --- the attacker run ---
 python trainStudent.py \
-    --STUDENT_BASE=meta-llama/Meta-Llama-3.1-8B-Instruct \
+    --STUDENT_BASE=meta-llama/Llama-3.1-8B-Instruct \
     --domain=medical \
     --MAX_QUERIES="${B}" \
     --Teacher_model="${VICTIM_NAME}" \
