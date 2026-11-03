@@ -84,8 +84,9 @@ mkdir -p "$run_root"
 echo "config: name=${NAME} mode=${MODE} B=${B} extra=[${EXTRA}]"
 
 # --- start the local victim (vLLM) ---
-# EXACT CLI of the known-good env/06 probe section 3 (no -u, no --enforce-eager,
-# util 0.60, len 2048). Leaves ~71 GiB free on the B200 for the 8B attacker.
+# MUST use --enforce-eager: without it vLLM does torch.compile level 3 + 68 CUDA
+# graph captures on cold boot, hanging >10 min at 0% GPU. Leaves ~71 GiB for the
+# 8B attacker on the same B200. Plain redirection.
 export VLLM_LOGGING_LEVEL=INFO
 python -m vllm.entrypoints.openai.api_server \
     --model "${SNAP}" \
@@ -93,6 +94,7 @@ python -m vllm.entrypoints.openai.api_server \
     --port 8000 \
     --gpu-memory-utilization 0.60 \
     --max-model-len 2048 \
+    --enforce-eager \
     > "${run_root}/vllm.log" 2>&1 &
 VLLM_PID=$!
 trap 'kill ${VLLM_PID} 2>/dev/null || true' EXIT

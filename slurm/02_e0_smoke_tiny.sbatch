@@ -61,9 +61,10 @@ run_root="${REPO}/runs/e0_smoke/${SLURM_JOB_ID}"
 mkdir -p "$run_root"
 
 # --- start the local victim (vLLM) ---
-# EXACT CLI of the known-good env/06 probe section 3 (no -u, no --enforce-eager,
-# util 0.60, len 2048). That combination was verified to reach /health on this
-# B200; deviations from it hung at arg_utils. Plain redirection, not >(tee).
+# MUST use --enforce-eager: without it vLLM compiles with torch.compile level 3
+# and captures 68 CUDA graphs on first boot, which on this cold cache hangs for
+# >10 min at 0% GPU (seen in job 49201829). The probe's vllm.LLM(enforce_eager=
+# True) path was fast precisely because it skips that. Plain redirection.
 export VLLM_LOGGING_LEVEL=INFO
 python -m vllm.entrypoints.openai.api_server \
     --model "${SNAP}" \
@@ -71,6 +72,7 @@ python -m vllm.entrypoints.openai.api_server \
     --port 8000 \
     --gpu-memory-utilization 0.60 \
     --max-model-len 2048 \
+    --enforce-eager \
     > "${run_root}/vllm.log" 2>&1 &
 VLLM_PID=$!
 trap 'kill ${VLLM_PID} 2>/dev/null || true' EXIT
