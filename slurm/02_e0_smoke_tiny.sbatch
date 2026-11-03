@@ -33,9 +33,9 @@ export PYTHONUNBUFFERED=1
 export TOKENIZERS_PARALLELISM=false
 
 # ============================================================================
-# >>> SET REPO BELOW (the only placeholder). Everything else auto-resolves. <<<
+# REPO is hardcoded to the cluster checkout (branch repro/oct-2026).
 # ============================================================================
-REPO="${REPO:-/path/to/knowledge-honeypot}"
+REPO="/orange/sgao1/sli/knowledge-honeypot"
 SNAP_DIR_ROOT="${HF_HUB_CACHE}/models--meta-llama--Llama-3.1-8B-Instruct/snapshots"
 # auto-pick the single snapshot dir if SNAP not given
 if [ -z "${SNAP:-}" ]; then
