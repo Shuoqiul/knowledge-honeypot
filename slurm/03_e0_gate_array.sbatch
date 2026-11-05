@@ -100,7 +100,7 @@ VLLM_PID=$!
 trap 'kill ${VLLM_PID} 2>/dev/null || true' EXIT
 
 up=0
-for i in $(seq 1 300); do
+for i in $(seq 1 900); do
     if curl -fsS http://127.0.0.1:8000/health >/dev/null 2>&1; then up=1; break; fi
     if [ $((i % 30)) -eq 0 ]; then
         echo "[wait $((i*2))s] vllm alive=$(kill -0 ${VLLM_PID} 2>/dev/null && echo yes || echo no)"

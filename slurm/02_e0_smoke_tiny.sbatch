@@ -79,7 +79,7 @@ trap 'kill ${VLLM_PID} 2>/dev/null || true' EXIT
 
 echo "waiting for vLLM /health ..."
 up=0
-for i in $(seq 1 300); do
+for i in $(seq 1 900); do
     if curl -fsS http://127.0.0.1:8000/health >/dev/null 2>&1; then
         echo "vLLM is up after ${i} tries"; up=1; break
     fi
