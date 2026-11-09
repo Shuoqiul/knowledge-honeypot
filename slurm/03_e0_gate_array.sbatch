@@ -11,10 +11,11 @@
 # Actor: give this to the PI. Ask them to submit the array, then paste the
 # per-task .out/.err plus the RUN_ROOT listings. Analyse combined logs.
 #
-# E0.1 (cells 0-3) already ran and passed in job 49707321. This file is now set
-# to the REMAINING cells 5-8 (E0.2 junk, E0.3 oracle). The --array below is
+# E0.1 cells 0-3 already ran and passed in job 49707321. This file is now set to
+# the REMAINING cells 4-8: 4 = full+tagged B500 (the E0.1 tag/B500 control that
+# was never run), 5-6 = E0.2 junk, 7-8 = E0.3 oracle. The --array below is
 # HARDCODED because the HiperGator job composer cannot pass --array on submit.
-# To run the full matrix later, change it back to 0-8%1 (or 0-3 for E0.1 only).
+# To rerun the whole matrix later, change it back to 0-8%1.
 #
 # Cell map (see the case statement below for the authoritative list):
 #   0 baseline B200 | 1 full->tagged B200 | 2 full+mask B200 | 3 full+mask B500
@@ -26,7 +27,7 @@
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=200G
 #SBATCH --time=12:00:00
-#SBATCH --array=5-8%1
+#SBATCH --array=4-8%1
 #SBATCH --output=e0_gate_%A_%a.out
 #SBATCH --error=e0_gate_%A_%a.err
 
