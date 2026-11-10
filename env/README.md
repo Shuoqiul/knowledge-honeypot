@@ -81,3 +81,13 @@ A snapshot exists at
 so `03` will print `SNAPSHOT_ALREADY_PRESENT` and skip. Use that hash for `SNAP` in
 the two GPU sbatch files (`slurm/02_e0_smoke_tiny.sbatch`, `slurm/03_e0_gate_array.sbatch`),
 and set `REPO`. Those two are the only things that go through `sbatch`.
+
+## E0.6a eval prerequisites
+
+`slurm/05_e0_6a_icl_eval.sbatch` needs:
+- the E0.1/E0.2 qa-pairs on disk (from jobs 49707321 / 50380074), and
+- `bash env/08_download_datasets.sh` run once (MedQA/MedMCQA into the datasets
+  cache) so the offline eval can load the benchmark.
+
+Then submit `slurm/05_e0_6a_icl_eval.sbatch` (spins up the victim, runs
+`evaluate_icl_local.py` for random vs relevance demos, 5 seeds).
