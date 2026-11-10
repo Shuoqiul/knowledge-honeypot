@@ -103,17 +103,23 @@ def main():
             print(f"L={L:>3} tau={tau:.2f} -> trigger_rate={triggered/max(1,len(questions)):.4f} "
                   f"(median frac {table[-1]['median_first_trigger_frac']})")
 
-    # Also report the no-time-term base score distribution (step=0 dominates).
-    base = [score(q, None, 0, 1) for q in questions]
+    # Content-only base score: step 0 with a large budget so the time term is ~0
+    # (the previous version used budget=1, which maxed the time term to 0.35 and
+    # misleadingly reported 0.6). This is the query-content score a defender sees
+    # before any session has accumulated.
+    base = [score(q, None, 0, 10_000) for q in questions]
     base_min = min(base) if base else None
     base_mean = sum(base) / len(base) if base else None
+    base_max = max(base) if base else None
 
     payload = {
         "experiment": "E0.7 benign false trigger (source masked)",
         "domain": args.domain,
         "n_questions": len(questions),
         "source": None,
-        "base_score": {"min": base_min, "mean": base_mean},
+        "content_base_score_at_step0_big_budget": {
+            "min": base_min, "mean": base_mean, "max": base_max
+        },
         "table": table,
     }
     os.makedirs(os.path.dirname(os.path.abspath(args.out)), exist_ok=True)
