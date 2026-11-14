@@ -89,15 +89,37 @@ def select_demos(pairs, question, max_demos, seed, mode):
     return [pairs[i] for i in order]
 
 
-def build_student_prompt(demos, question, task_type):
-    demo_text = [f"Example {i}\nQuestion: {d['prompt']}\nAnswer: {d['teacher_answer']}"
-                 for i, d in enumerate(demos, 1)]
+def _approx_tokens(text):
+    # ~4 chars/token heuristic; good enough to keep prompts under the server cap.
+    return len(text) // 4 + 1
+
+
+def build_student_prompt(demos, question, task_type, max_prompt_tokens=None):
     instr = "Answer the question using the style and knowledge reflected in the examples."
     if task_type == "mcq":
         instr += " Return only the best option letter A, B, C, or D."
     else:
         instr += " Return a concise final answer."
-    return f"{instr}\n\n" + "\n\n".join(demo_text) + f"\n\nTarget Question:\n{question}\n\nAnswer:"
+    tail = f"\n\nTarget Question:\n{question}\n\nAnswer:"
+
+    # If a budget is set, keep demos (in the given order) until adding the next
+    # one would exceed the budget; reserve room for the tail + output.
+    if max_prompt_tokens:
+        budget = max_prompt_tokens - _approx_tokens(instr + tail) - 64
+        kept = []
+        used = 0
+        for i, d in enumerate(demos, 1):
+            block = f"Example {i}\nQuestion: {d['prompt']}\nAnswer: {d['teacher_answer']}"
+            t = _approx_tokens(block) + 2
+            if used + t > budget:
+                break
+            kept.append(block)
+            used += t
+        demo_text = kept
+    else:
+        demo_text = [f"Example {i}\nQuestion: {d['prompt']}\nAnswer: {d['teacher_answer']}"
+                     for i, d in enumerate(demos, 1)]
+    return f"{instr}\n\n" + "\n\n".join(demo_text) + tail
 
 
 def build_victim_prompt(question, task_type):
@@ -120,7 +142,7 @@ def eval_one(client, args, rows, pairs, seed):
     for row in rows:
         tt = row["task_type"]
         demos = select_demos(pairs, row["question"], args.max_demos, seed, args.demo_mode)
-        s_prompt = build_student_prompt(demos, row["question"], tt)
+        s_prompt = build_student_prompt(demos, row["question"], tt, args.max_prompt_tokens)
         v_prompt = build_victim_prompt(row["question"], tt)
         s_ans = chat(client, args.surrogate_model, s_prompt)
         v_ans = chat(client, args.victim_model, v_prompt)
@@ -140,6 +162,7 @@ def main():
     ap.add_argument("--data_path", default=None)
     ap.add_argument("--limit", type=int, default=100)
     ap.add_argument("--max_demos", type=int, default=24)
+    ap.add_argument("--max_prompt_tokens", type=int, default=16000, help="cap ICL prompt (approx) so it fits the served max-model-len")
     ap.add_argument("--seeds", default="0,1,2,3,4")
     ap.add_argument("--demo_mode", choices=["random", "relevance"], default="relevance")
     ap.add_argument("--base_url", default=os.getenv("VICTIM_BASE_URL", "http://127.0.0.1:8000/v1"))

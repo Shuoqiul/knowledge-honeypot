@@ -45,7 +45,7 @@ run_root="${REPO}/runs/e0_6a/${SLURM_JOB_ID}"; mkdir -p "$run_root"
 export VLLM_LOGGING_LEVEL=INFO
 python -m vllm.entrypoints.openai.api_server \
     --model "${SNAP}" --served-model-name llama-3.1-8b-instruct \
-    --port 8000 --gpu-memory-utilization 0.60 --max-model-len 2048 --enforce-eager \
+    --port 8000 --gpu-memory-utilization 0.60 --max-model-len 16384 --enforce-eager \
     > "${run_root}/vllm.log" 2>&1 &
 VLLM_PID=$!
 trap 'kill ${VLLM_PID} 2>/dev/null || true' EXIT
@@ -77,7 +77,7 @@ QA_JUNK="checkpoint/e0_2_junk_B200_all_qa_pairs_200_*.json"
 for MODE in random relevance; do
   python evaluate_icl_local.py \
       --qa_files "$QA_BASE" "$QA_MASK" "$QA_JUNK" \
-      --benchmark "$BM" --domain medical --limit 100 --max_demos 24 \
+      --benchmark "$BM" --domain medical --limit 100 --max_demos 24 --max_prompt_tokens 15000 \
       --seeds 0,1,2,3,4 --demo_mode "$MODE" \
       --base_url http://127.0.0.1:8000/v1 \
       --victim_model llama-3.1-8b-instruct \
